@@ -76,6 +76,7 @@ export interface Message {
     user_id: number;
     userName: string;
     admin_id: number | null;
+    adminName: string;
     ticket_id: Ticket['id'];
     admin_connected: boolean;
     admin_disconnected: boolean;

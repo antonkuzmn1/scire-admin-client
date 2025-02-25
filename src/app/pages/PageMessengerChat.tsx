@@ -173,6 +173,7 @@ const PageMessengerChat: React.FC = () => {
                 return {
                     ...message,
                     userName: userIdToName(data.user_id, usersResponse.data),
+                    adminName: adminIdToName(data.admin_id, adminsResponse.data),
                 }
             });
             localDispatch({type: "SET_MESSAGES", payload: messages});
@@ -191,6 +192,24 @@ const PageMessengerChat: React.FC = () => {
         init().then();
     }, [dispatch]);
 
+    const assignTicket = () => {
+        dispatch(setAppLoading(true));
+
+        const payload = {
+            action: 'assign_ticket',
+            data: {
+                item_id: ticketId,
+            }
+        }
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(payload));
+        } else {
+            dispatch(setAppError("WebSocket error"));
+        }
+
+        dispatch(setAppLoading(false));
+    }
+
     const sendMessage = () => {
         localDispatch({type: 'SET_MESSAGE', payload: ''});
         const text = state.message.trim();
@@ -204,25 +223,8 @@ const PageMessengerChat: React.FC = () => {
             action: 'send_message',
             data: {
                 text,
+                user_id: state.ticket.user_id,
                 ticket_id: ticketId,
-            }
-        }
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(payload));
-        } else {
-            dispatch(setAppError("WebSocket error"));
-        }
-
-        dispatch(setAppLoading(false));
-    }
-
-    const closeTicket = () => {
-        dispatch(setAppLoading(true));
-
-        const payload = {
-            action: 'close_ticket',
-            data: {
-                item_id: ticketId,
             }
         }
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -297,6 +299,7 @@ const PageMessengerChat: React.FC = () => {
                     case "send_message":
                         const sendMessageData: Message = message.data;
                         sendMessageData.userName = userIdToName(sendMessageData.user_id, state.users);
+                        sendMessageData.adminName = adminIdToName(sendMessageData.admin_id, state.admins);
                         localDispatch({type: "ADD_MESSAGE", payload: sendMessageData});
                         break;
                     case "close_ticket":
@@ -305,6 +308,14 @@ const PageMessengerChat: React.FC = () => {
                         closeTicketData.userName = userIdToName(closeTicketData.user_id, state.users);
                         closeTicketData.adminName = adminIdToName(closeTicketData.admin_id, state.admins);
                         localDispatch({type: "SET_TICKET", payload: closeTicketData});
+                        break;
+                    case "assign_ticket":
+                        const assignTicket: Ticket = message.data;
+                        assignTicket.statusText = statusToText(assignTicket.status);
+                        assignTicket.userName = userIdToName(assignTicket.user_id, state.users);
+                        assignTicket.adminName = adminIdToName(assignTicket.admin_id, state.admins);
+                        console.log(assignTicket);
+                        localDispatch({type: "SET_TICKET", payload: assignTicket});
                         break;
                     default:
                         dispatch(setAppError("Unknown message type received via WebSocket"));
@@ -321,6 +332,7 @@ const PageMessengerChat: React.FC = () => {
                 behavior: 'smooth'
             });
         }
+        console.log(state.messages);
     }, [state.messages]);
 
     return (
@@ -338,14 +350,14 @@ const PageMessengerChat: React.FC = () => {
                         <h1>Title: {state.ticket?.title || 'Loading...'}</h1>
                         <p>Description: {state.ticket?.description || 'Loading...'}</p>
                         <p>Status: {state.ticket?.statusText || 'Loading...'}</p>
-                        <button
-                            className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                            onClick={closeTicket}
-                        >
-                            Close ticket
-                        </button>
                         <p>Initiator: {state.ticket?.userName || 'Loading...'}</p>
                         <p>Assigned: {state.ticket?.adminName || 'None'}</p>
+                        <button
+                            className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={assignTicket}
+                        >
+                            Assign ticket
+                        </button>
                         <p>Date: {state.ticket ? dateToString(new Date(String(state.ticket.created_at))) : 'Loading...'}</p>
                         <div className={'border border-gray-300 p-2 space-y-2'}>
                             {state.ticketFiles.map((ticketFile, index) => (
@@ -363,10 +375,24 @@ const PageMessengerChat: React.FC = () => {
                         </div>
                     </div>
                     {state.messages.map((message, index) => {
+                        if (message.admin_connected) {
+                            return (
+                                <div key={index} className={'border border-gray-300 p-4'}>
+                                    <div>[Admin] {message.adminName} connected</div>
+                                </div>
+                            )
+                        }
                         if (message.solved && !message.admin_id) {
                             return (
                                 <div key={index} className={'border border-gray-300 p-4'}>
-                                    <div>{message.userName} marked ticket as Solved</div>
+                                    <div>[Admin] {message.userName} marked ticket as Solved</div>
+                                </div>
+                            )
+                        }
+                        if (message.admin_id) {
+                            return (
+                                <div key={index} className={'border border-gray-300 p-4'}>
+                                    <div>[Admin] {message.userName}: {message.text}</div>
                                 </div>
                             )
                         }
