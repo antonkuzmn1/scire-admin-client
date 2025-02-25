@@ -23,7 +23,7 @@ export const useAccount = () => {
 
         if (token) {
             try {
-                await apiOauth.get('/users/profile', {
+                await apiOauth.get('/admins/profile', {
                     headers: {Authorization: `Bearer ${token}`}
                 });
                 Cookies.set('token', token, {expires: 1});

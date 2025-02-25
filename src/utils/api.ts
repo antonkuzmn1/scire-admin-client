@@ -9,9 +9,9 @@ export const apiStorage = axios.create({
 });
 
 export const apiScire = axios.create({
-    baseURL: 'https://scire-server.antonkuzm.in',
-    // baseURL: 'http://localhost:8000',
+    // baseURL: 'https://scire-server.antonkuzm.in',
+    baseURL: 'http://localhost:8000',
 })
 
-export const wsScire = 'wss://scire-server.antonkuzm.in';
-// export const wsScire = 'ws://localhost:8000';
+// export const wsScire = 'wss://scire-server.antonkuzm.in';
+export const wsScire = 'ws://localhost:8000';

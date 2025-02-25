@@ -8,6 +8,7 @@ import {useNavigate, useParams} from "react-router-dom";
 import {dateToString} from "../../utils/formatDate.ts";
 import {Download, Send} from "@mui/icons-material";
 import {formatFileSize} from "../../utils/formatFileSize.ts";
+import {Admin, Ticket, User, Message, TicketFile, MessageFile} from "../../utils/messengerInterfaces.ts";
 
 // interface StorageFile {
 //     uuid: string;
@@ -20,93 +21,6 @@ import {formatFileSize} from "../../utils/formatFileSize.ts";
 //     updated_at: string | null;
 //     file: File | null;
 // }
-
-interface Company {
-    id: number;
-    username: string;
-    description: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
-
-interface User {
-    id: number;
-    username: string;
-    password: string;
-    surname: string;
-    name: string;
-    middlename: string | null;
-    department: string | null;
-    local_workplace: string | null;
-    remote_workplace: string | null;
-    phone: string | null;
-    cellular: string | null;
-    post: string | null;
-    company_id: number;
-    company: Company | null;
-    companyName: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
-
-interface Admin {
-    id: number;
-    username: string;
-    password: string;
-    surname: string;
-    name: string;
-    middlename: string | null;
-    department: string | null;
-    phone: string | null;
-    cellular: string | null;
-    post: string | null;
-    companies: Company[]
-    companyNames: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
-
-interface MessageFile {
-    item_id: number;
-    file_uuid: string;
-    file_name: string;
-    file_size: number;
-}
-
-interface TicketFile {
-    item_id: number;
-    file_uuid: string;
-    file_name: string;
-    file_size: number;
-}
-
-interface Message {
-    id: number;
-    text: string;
-    user_id: number;
-    userName: string;
-    admin_id: number | null;
-    ticket_id: Ticket['id'];
-    admin_connected: boolean;
-    admin_disconnected: boolean;
-    in_progress: boolean;
-    solved: boolean;
-    files: MessageFile[];
-}
-
-interface Ticket {
-    id: number;
-    title: string;
-    description: string;
-    status: 0 | 1 | 2
-    statusText: 'Pending' | 'In progress' | 'Solved';
-    user_id: number;
-    userName: string;
-    admin_id: number | null;
-    adminName: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
 
 interface State {
     ticket: Ticket;
@@ -256,6 +170,7 @@ const PageMessengerChat: React.FC = () => {
 
             const ticketResponse = await apiScire.get(`/tickets/${ticketId}`);
             const data = ticketResponse.data;
+            console.log(data);
             data.statusText = statusToText(data.status);
             data.userName = userIdToName(data.user_id, usersResponse.data);
             data.adminName = adminIdToName(data.admin_id, adminsResponse.data);
@@ -338,7 +253,7 @@ const PageMessengerChat: React.FC = () => {
                 responseType: "blob",
             });
 
-            const blob = new Blob([response.data], { type: response.headers["content-type"] });
+            const blob = new Blob([response.data], {type: response.headers["content-type"]});
             const url = URL.createObjectURL(blob);
 
             const a = document.createElement("a");
@@ -484,7 +399,8 @@ const PageMessengerChat: React.FC = () => {
                         <p>Date: {state.ticket ? dateToString(new Date(String(state.ticket.created_at))) : 'Loading...'}</p>
                         <div className={'border border-gray-300 p-2 space-y-2'}>
                             {state.ticketFiles.map((ticketFile, index) => (
-                                <div key={index} className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
+                                <div key={index}
+                                     className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
                                     {ticketFile.file_name} - {formatFileSize(ticketFile.file_size)}
                                     <button
                                         className={'w-12 h-full cursor-pointer hover:bg-gray-300 transition-colors duration-200'}

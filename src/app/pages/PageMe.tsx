@@ -25,13 +25,11 @@ interface Data {
     name: string;
     middlename: string | null;
     department: string | null;
-    local_workplace: string | null;
-    remote_workplace: string | null;
     phone: string | null;
     cellular: string | null;
     post: string | null;
-    company: Company;
-    companyName: string;
+    companies: Company[];
+    companiesNames: string;
     created_at: string | null;
     updated_at: string | null;
 }
@@ -53,13 +51,11 @@ const initialState: State = {
         name: '',
         middlename: null,
         department: null,
-        local_workplace: null,
-        remote_workplace: null,
         phone: null,
         cellular: null,
         post: null,
-        company: {id: 0, username: '', description: '', created_at: null, updated_at: null},
-        companyName: '',
+        companies: [],
+        companiesNames: '',
         created_at: null,
         updated_at: null
     },
@@ -84,10 +80,10 @@ const PageMe: React.FC = () => {
     const getData = useCallback(async () => {
         dispatch(setAppLoading(true));
         try {
-            const response = await apiOauth.get("/users/profile");
+            const response = await apiOauth.get("/admins/profile");
             const data = {
                 ...response.data,
-                companyName: response.data.company.username,
+                companiesNames: response.data.companies.map((company: Company) => company.username).join(', '),
             }
             localDispatch({type: "SET_DATA", payload: data});
         } catch (error: unknown) {
@@ -130,13 +126,6 @@ const PageMe: React.FC = () => {
                         readOnly={true}
                     />
                     <Input
-                        label={'Password'}
-                        type={'password'}
-                        placeholder={'Empty'}
-                        value={state.data.password}
-                        readOnly={true}
-                    />
-                    <Input
                         label={'Surname'}
                         type={'text'}
                         placeholder={'Empty'}
@@ -165,20 +154,6 @@ const PageMe: React.FC = () => {
                         readOnly={true}
                     />
                     <Input
-                        label={'Local workplace'}
-                        type={'text'}
-                        placeholder={'Empty'}
-                        value={state.data.local_workplace || ''}
-                        readOnly={true}
-                    />
-                    <Input
-                        label={'Remote workplace'}
-                        type={'text'}
-                        placeholder={'Empty'}
-                        value={state.data.remote_workplace || ''}
-                        readOnly={true}
-                    />
-                    <Input
                         label={'Phone'}
                         type={'text'}
                         placeholder={'Empty'}
@@ -203,7 +178,7 @@ const PageMe: React.FC = () => {
                         label={'Companies'}
                         type={'text'}
                         placeholder={'Empty'}
-                        value={state.data.companyName || ''}
+                        value={state.data.companiesNames || ''}
                         readOnly={true}
                     />
                     <Input
