@@ -56,21 +56,21 @@ export interface Ticket {
     updated_at: string | null;
 }
 
-interface MessageFile {
+export interface MessageFile {
     item_id: number;
     file_uuid: string;
     file_name: string;
     file_size: number;
 }
 
-interface TicketFile {
+export interface TicketFile {
     item_id: number;
     file_uuid: string;
     file_name: string;
     file_size: number;
 }
 
-interface Message {
+export interface Message {
     id: number;
     text: string;
     user_id: number;

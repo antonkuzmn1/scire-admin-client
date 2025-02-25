@@ -10,18 +10,6 @@ import {Download, Send} from "@mui/icons-material";
 import {formatFileSize} from "../../utils/formatFileSize.ts";
 import {Admin, Ticket, User, Message, TicketFile, MessageFile} from "../../utils/messengerInterfaces.ts";
 
-// interface StorageFile {
-//     uuid: string;
-//     name: string;
-//     size: number;
-//     sizeFormatted: string;
-//     user_id: number;
-//     userName: string;
-//     created_at: string | null;
-//     updated_at: string | null;
-//     file: File | null;
-// }
-
 interface State {
     ticket: Ticket;
     messages: Message[];
@@ -274,44 +262,6 @@ const PageMessengerChat: React.FC = () => {
             dispatch(setAppLoading(false));
         }
     }
-
-    // const createTicket = useCallback(() => {
-    //     const title = state.currentTicket.title.trim();
-    //     const description = state.currentTicket.description.trim();
-    //     if (!title || !description) {
-    //         dispatch(setAppError('Title and Description required'));
-    //     }
-    //
-    //     dispatch(setAppLoading(true));
-    //
-    //     const payload = {
-    //         action: 'create_ticket',
-    //         data: {
-    //             title,
-    //             description,
-    //         }
-    //     }
-    //     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-    //         wsRef.current.send(JSON.stringify(payload));
-    //     } else {
-    //         dispatch(setAppError("WebSocket error"));
-    //     }
-    //
-    //     dispatch(setAppLoading(false));
-    // }, [dispatch, state.currentTicket]);
-
-    // const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    //     if (!e.target.files || e.target.files.length === 0) return;
-    //
-    //     const newFile = e.target.files[0];
-    //
-    //     localDispatch({
-    //         type: 'ADD_FILE',
-    //         payload: newFile,
-    //     });
-    //
-    //     e.target.value = '';
-    // };
 
     useEffect(() => {
         const token = Cookies.get('token');
