@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  react-app:
+    image: antonkuzmn1/scire-admin-client
+    container_name: scire-admin-client
+    build: .
+    ports:
+      - "3009:80"
+    restart: always
