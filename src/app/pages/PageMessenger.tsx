@@ -17,6 +17,8 @@ interface State {
 type Action =
     | { type: 'SET_TICKETS', payload: Ticket[] }
     | { type: 'ADD_TICKET', payload: Ticket }
+    | { type: 'UPDATE_TICKET', payload: Ticket }
+    | { type: 'DELETE_TICKET', payload: Ticket }
     | { type: 'SET_USERS', payload: User[] }
     | { type: 'SET_ADMINS', payload: Admin[] }
 
@@ -38,6 +40,18 @@ const reducer = (state: State, action: Action): State => {
             return {
                 ...state,
                 tickets: [action.payload, ...state.tickets],
+            }
+        case 'UPDATE_TICKET':
+            return {
+                ...state,
+                tickets: state.tickets.map(ticket =>
+                    ticket.id === action.payload.id ? action.payload : ticket
+                ),
+            }
+        case 'DELETE_TICKET':
+            return {
+                ...state,
+                tickets: state.tickets.filter(ticket => ticket.id !== action.payload.id),
             }
         case 'SET_USERS':
             return {
@@ -126,18 +140,36 @@ const PageMessenger: React.FC = () => {
             wsRef.current.onmessage = (event: any) => {
                 const message = JSON.parse(event.data);
                 console.log(message);
+                console.log(message.action);
                 switch (message.action) {
                     case "create_ticket":
-                        const data: Ticket = message.data;
-                        data.statusText = statusToText(data.status);
-                        data.userName = userIdToName(data.user_id, state.users);
-                        data.adminName = adminIdToName(data.admin_id, state.admins);
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
                         localDispatch({
                             type: 'ADD_TICKET',
                             payload: message.data,
                         });
                         break;
                     case "add_file_to_ticket":
+                        break;
+                    case "close_ticket":
+                        console.log("close_ticket");
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({
+                            type: 'DELETE_TICKET',
+                            payload: message.data,
+                        })
+                        break;
+                    case "send_message":
+                        break;
+                    case "set_ticket_status":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "UPDATE_TICKET", payload: message.data});
                         break;
                     default:
                         dispatch(setAppError("Unknown message type received via WebSocket"));

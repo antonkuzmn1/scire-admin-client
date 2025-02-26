@@ -210,6 +210,25 @@ const PageMessengerChat: React.FC = () => {
         dispatch(setAppLoading(false));
     }
 
+    const setTicketStatus = (status: 0 | 1 | 2) => {
+        dispatch(setAppLoading(true));
+
+        const payload = {
+            action: 'set_ticket_status',
+            data: {
+                item_id: ticketId,
+                status: status,
+            }
+        }
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(payload));
+        } else {
+            dispatch(setAppError("WebSocket error"));
+        }
+
+        dispatch(setAppLoading(false));
+    }
+
     const sendMessage = () => {
         localDispatch({type: 'SET_MESSAGE', payload: ''});
         const text = state.message.trim();
@@ -314,8 +333,13 @@ const PageMessengerChat: React.FC = () => {
                         assignTicket.statusText = statusToText(assignTicket.status);
                         assignTicket.userName = userIdToName(assignTicket.user_id, state.users);
                         assignTicket.adminName = adminIdToName(assignTicket.admin_id, state.admins);
-                        console.log(assignTicket);
                         localDispatch({type: "SET_TICKET", payload: assignTicket});
+                        break;
+                    case "set_ticket_status":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "SET_TICKET", payload: message.data});
                         break;
                     default:
                         dispatch(setAppError("Unknown message type received via WebSocket"));
@@ -332,94 +356,150 @@ const PageMessengerChat: React.FC = () => {
                 behavior: 'smooth'
             });
         }
-        console.log(state.messages);
     }, [state.messages]);
 
     return (
         <>
-            <div className="flex flex-col mx-auto justify-center pb-14 h-[100vh]">
+            <div
+                ref={containerRef}
+                className={'fixed w-full h-[calc(100%-137px)] overflow-y-auto flex flex-col gap-2 p-4'}
+            >
+                <div className={'border border-gray-300 p-4'}>
+                    <h1>Title: {state.ticket?.title || 'Loading...'}</h1>
+                    <p>Description: {state.ticket?.description || 'Loading...'}</p>
+                    <p>Status: {state.ticket?.statusText || 'Loading...'}</p>
+                    <button
+                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                        onClick={() => setTicketStatus(0)}
+                    >
+                        Pending
+                    </button>
+                    <button
+                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                        onClick={() => setTicketStatus(1)}
+                    >
+                        In progress
+                    </button>
+                    <button
+                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                        onClick={() => setTicketStatus(2)}
+                    >
+                        Solved
+                    </button>
+                    <p>Initiator: {state.ticket?.userName || 'Loading...'}</p>
+                    <p>Assigned: {state.ticket?.adminName || 'None'}</p>
+                    <button
+                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                        onClick={assignTicket}
+                    >
+                        Assign ticket
+                    </button>
+                    <p>Date: {state.ticket ? dateToString(new Date(String(state.ticket.created_at))) : 'Loading...'}</p>
+                    <div className={'border border-gray-300 p-2 space-y-2'}>
+                        {state.ticketFiles.map((ticketFile, index) => (
+                            <div key={index}
+                                 className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
+                                {ticketFile.file_name} - {formatFileSize(ticketFile.file_size)}
+                                <button
+                                    className={'w-12 h-full cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                                    onClick={() => downloadTicketFile(ticketFile)}
+                                >
+                                    <Download/>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                {state.messages.map((message, index) => {
+                    if (message.admin_id &&
+                        message.text === '' &&
+                        !message.admin_connected &&
+                        !message.admin_disconnected &&
+                        !message.in_progress &&
+                        !message.solved
+                    ) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.adminName} marked ticket as Pending</div>
+                            </div>
+                        )
+                    }
+                    if (message.admin_id &&
+                        message.text === '' &&
+                        !message.admin_connected &&
+                        !message.admin_disconnected &&
+                        message.in_progress &&
+                        !message.solved
+                    ) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.adminName} marked ticket as In progress</div>
+                            </div>
+                        )
+                    }
+                    if (message.admin_id &&
+                        message.text === '' &&
+                        !message.admin_connected &&
+                        !message.admin_disconnected &&
+                        !message.in_progress &&
+                        message.solved
+                    ) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.adminName} marked ticket as Solved</div>
+                            </div>
+                        )
+                    }
+                    if (message.admin_connected) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.adminName} connected</div>
+                            </div>
+                        )
+                    }
+                    if (message.solved && !message.admin_id) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.userName} marked ticket as Solved</div>
+                            </div>
+                        )
+                    }
+                    if (message.admin_id) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4'}>
+                                <div>[Admin] {message.userName}: {message.text}</div>
+                            </div>
+                        )
+                    }
+                    return (
+                        <div key={index} className={'border border-gray-300 p-4'}>
+                            <div>{message.userName}: {message.text}</div>
+                        </div>
+                    )
+                })}
+            </div>
+            <div className={'w-full border-t border-gray-300 flex fixed bottom-14 left-0 bg-white'}>
                 <button
-                    className={'border border-gray-300 mb-[-1px] p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                    className={'p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
                     onClick={() => navigate(`/messenger`)}
                 >
                     Back
                 </button>
-                <div ref={containerRef}
-                     className={'w-full gap-2 flex flex-col border border-gray-300 p-4 overflow-y-auto h-full'}>
-                    <div className={'border border-gray-300 p-4'}>
-                        <h1>Title: {state.ticket?.title || 'Loading...'}</h1>
-                        <p>Description: {state.ticket?.description || 'Loading...'}</p>
-                        <p>Status: {state.ticket?.statusText || 'Loading...'}</p>
-                        <p>Initiator: {state.ticket?.userName || 'Loading...'}</p>
-                        <p>Assigned: {state.ticket?.adminName || 'None'}</p>
-                        <button
-                            className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                            onClick={assignTicket}
-                        >
-                            Assign ticket
-                        </button>
-                        <p>Date: {state.ticket ? dateToString(new Date(String(state.ticket.created_at))) : 'Loading...'}</p>
-                        <div className={'border border-gray-300 p-2 space-y-2'}>
-                            {state.ticketFiles.map((ticketFile, index) => (
-                                <div key={index}
-                                     className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
-                                    {ticketFile.file_name} - {formatFileSize(ticketFile.file_size)}
-                                    <button
-                                        className={'w-12 h-full cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                                        onClick={() => downloadTicketFile(ticketFile)}
-                                    >
-                                        <Download/>
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    {state.messages.map((message, index) => {
-                        if (message.admin_connected) {
-                            return (
-                                <div key={index} className={'border border-gray-300 p-4'}>
-                                    <div>[Admin] {message.adminName} connected</div>
-                                </div>
-                            )
-                        }
-                        if (message.solved && !message.admin_id) {
-                            return (
-                                <div key={index} className={'border border-gray-300 p-4'}>
-                                    <div>[Admin] {message.userName} marked ticket as Solved</div>
-                                </div>
-                            )
-                        }
-                        if (message.admin_id) {
-                            return (
-                                <div key={index} className={'border border-gray-300 p-4'}>
-                                    <div>[Admin] {message.userName}: {message.text}</div>
-                                </div>
-                            )
-                        }
-                        return (
-                            <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>{message.userName}: {message.text}</div>
-                            </div>
-                        )
+                <textarea
+                    className={'w-full h-full resize-none p-4'}
+                    placeholder={'Enter message'}
+                    value={state.message}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => localDispatch({
+                        type: 'SET_MESSAGE',
+                        payload: e.target.value,
                     })}
-                </div>
-                <div className={'mt-[-1px] w-full border border-gray-300 flex'}>
-                    <textarea
-                        className={'w-full h-full resize-none p-4'}
-                        placeholder={'Enter message'}
-                        value={state.message}
-                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => localDispatch({
-                            type: 'SET_MESSAGE',
-                            payload: e.target.value,
-                        })}
-                    />
-                    <button
-                        className={'p-4 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                        onClick={sendMessage}
-                    >
-                        <Send/>
-                    </button>
-                </div>
+                />
+                <button
+                    className={'p-4 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                    onClick={sendMessage}
+                >
+                    <Send/>
+                </button>
             </div>
         </>
     )
