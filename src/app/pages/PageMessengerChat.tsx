@@ -467,7 +467,7 @@ const PageMessengerChat: React.FC = () => {
                     if (message.admin_id) {
                         return (
                             <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.userName}: {message.text}</div>
+                                <div>[Admin] {message.adminName}: {message.text}</div>
                             </div>
                         )
                     }
