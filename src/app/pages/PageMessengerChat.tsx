@@ -243,12 +243,13 @@ const PageMessengerChat: React.FC = () => {
             return;
         }
 
-        setInitDone(false);
 
         if (state.ticket.admin_id && state.ticket.admin_id !== state.account?.id) {
             dispatch(setAppError('Access denied'));
             return;
         }
+
+        setInitDone(false);
 
         if (!state.ticket.admin_id) {
             connectTicket();
