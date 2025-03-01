@@ -142,7 +142,6 @@ const PageMessenger: React.FC = () => {
             wsRef.current.onmessage = (event: any) => {
                 const message = JSON.parse(event.data);
                 console.log(message);
-                console.log(message.action);
                 switch (message.action) {
                     case "create_ticket":
                         message.data.statusText = statusToText(message.data.status);
@@ -165,7 +164,22 @@ const PageMessenger: React.FC = () => {
                             payload: message.data,
                         })
                         break;
+                    case "reopen_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({
+                            type: 'ADD_TICKET',
+                            payload: message.data,
+                        });
+                        break;
                     case "send_message":
+                        break;
+                    case "assign_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "UPDATE_TICKET", payload: message.data});
                         break;
                     case "set_ticket_status":
                         message.data.statusText = statusToText(message.data.status);
