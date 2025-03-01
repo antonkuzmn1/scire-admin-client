@@ -1,12 +1,13 @@
-import React, {useCallback, useEffect, useReducer, useRef} from "react";
+import React, {useCallback, useEffect, useReducer, useRef, useState} from "react";
 import {AppDispatch} from "../../utils/store.ts";
 import {useDispatch} from "react-redux";
-import {setAppError, setAppLoading} from "../../slices/appSlice.ts";
+import {setAppError} from "../../slices/appSlice.ts";
 import {apiOauth, apiScire, wsScire} from "../../utils/api.ts";
 import Cookies from "js-cookie";
 import {useNavigate} from "react-router-dom";
 import {Admin, Ticket, User} from "../../utils/messengerInterfaces.ts";
 import {adminIdToName, statusToText, userIdToName} from "../../utils/messengerTools.ts";
+import LoadingSpinner from "../components/LoadingSpinner.tsx";
 
 interface State {
     tickets: Ticket[];
@@ -73,9 +74,10 @@ const PageMessenger: React.FC = () => {
     const [state, localDispatch] = useReducer(reducer, initialState);
     const wsRef = useRef<WebSocket | null>(null);
     const navigate = useNavigate();
+    const [initDone, setInitDone] = useState<boolean>(false);
 
     const getTickets = useCallback(async () => {
-        dispatch(setAppLoading(true));
+        setInitDone(false);
         try {
             const usersResponse = await apiOauth.get("/users/");
             localDispatch({type: "SET_USERS", payload: usersResponse.data});
@@ -103,7 +105,7 @@ const PageMessenger: React.FC = () => {
                 dispatch(setAppError("An unknown error occurred"));
             }
         } finally {
-            dispatch(setAppLoading(false));
+            setInitDone(true);
         }
     }, []);
 
@@ -179,6 +181,8 @@ const PageMessenger: React.FC = () => {
         }
     }, []);
 
+    if (!initDone) return <LoadingSpinner/>;
+
     return (
         <>
             <div className="p-4 flex justify-center pb-20">
@@ -189,7 +193,7 @@ const PageMessenger: React.FC = () => {
                             <p>{ticket.description}</p>
                             <button
                                 className={'border border-gray-300 px-4 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                                onClick={() => navigate(`/messenger/${ticket.id}`)}
+                                onClick={() => navigate(`/${ticket.id}`)}
                             >
                                 Open
                             </button>

@@ -1,13 +1,14 @@
-import React, {useCallback, useEffect, useReducer} from "react";
+import React, {useCallback, useEffect, useReducer, useState} from "react";
 import {AppDispatch} from "../../utils/store.ts";
 import {useDispatch} from "react-redux";
 import Cookies from "js-cookie";
 import axios from "axios";
 import {setAccountAuthorized} from "../../slices/accountSlice.ts";
-import {setAppError, setAppLoading} from "../../slices/appSlice.ts";
+import {setAppError} from "../../slices/appSlice.ts";
 import {dateToString} from "../../utils/formatDate.ts";
 import Input from "../components/Input.tsx";
 import {apiOauth} from "../../utils/api.ts";
+import LoadingSpinner from "../components/LoadingSpinner.tsx";
 
 interface Company {
     id: number;
@@ -76,9 +77,10 @@ const reducer = (state: State, action: Action) => {
 const PageMe: React.FC = () => {
     const dispatch: AppDispatch = useDispatch();
     const [state, localDispatch] = useReducer(reducer, initialState);
+    const [initDone, setInitDone] = useState<boolean>(false);
 
     const getData = useCallback(async () => {
-        dispatch(setAppLoading(true));
+        setInitDone(false);
         try {
             const response = await apiOauth.get("/admins/profile");
             const data = {
@@ -93,7 +95,7 @@ const PageMe: React.FC = () => {
                 dispatch(setAppError("An unknown error occurred"));
             }
         } finally {
-            dispatch(setAppLoading(false));
+            setInitDone(true);
         }
     }, []);
 
@@ -106,6 +108,8 @@ const PageMe: React.FC = () => {
         delete axios.defaults.headers.common['Authorization'];
         dispatch(setAccountAuthorized(false));
     }
+
+    if (!initDone) return <LoadingSpinner/>;
 
     return (
         <>

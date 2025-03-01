@@ -22,13 +22,13 @@ export interface RoutePageInterface {
 }
 
 export const routePages: RoutePageInterface[] = [
-    {path: '/messenger', element: <Page element={<PageMessenger/>}/>, title: "Messenger"},
-    {path: '/messenger/:ticketId', element: <Page element={<PageMessengerChat/>}/>, title: "Messenger"},
+    {path: '/', element: <Page element={<PageMessenger/>}/>, title: "Messenger"},
+    {path: '/:ticketId', element: <Page element={<PageMessengerChat/>}/>, title: "Messenger"},
     {path: '/me', element: <Page element={<PageMe/>}/>, title: "Me"},
 ];
 
 const router = createBrowserRouter([
-    {path: "*", element: <Navigate to="/messenger"/>},
+    {path: "*", element: <Navigate to="/"/>},
     ...routePages.map(page => ({
         path: page.path,
         element: page.element

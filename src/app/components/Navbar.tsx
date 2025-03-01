@@ -18,7 +18,7 @@ const Navbar = () => {
     return (
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 text-black">
             <div className="flex">
-                <Link to="/messenger" className={getLinkClass("/messenger")}>
+                <Link to="/" className={getLinkClass("/")}>
                     <div className="flex items-center justify-center space-x-2">
                         <Chat sx={{color: 'black'}}/>
                         {deviceSize === 'Large' && <span>Messenger</span>}
