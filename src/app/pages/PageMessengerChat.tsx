@@ -211,8 +211,6 @@ const PageMessengerChat: React.FC = () => {
             dispatch(setAppError("WebSocket error"));
         }
 
-        setTicketStatus(0);
-
         setInitDone(true);
     }
 
