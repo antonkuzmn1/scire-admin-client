@@ -1,13 +1,18 @@
 export const dateToString = (inputDate: Date) => {
-    const time = inputDate.toLocaleTimeString('ru-RU', {
+    const adjustedDate = new Date(inputDate);
+    adjustedDate.setHours(adjustedDate.getHours() + 4);
+
+    const time = adjustedDate.toLocaleTimeString('ru-RU', {
         hour: '2-digit',
         minute: '2-digit',
     });
-    const date = inputDate.toLocaleDateString('ru-RU', {
+
+    const date = adjustedDate.toLocaleDateString('ru-RU', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
     });
+
     return `${time} - ${date}`;
 }
 

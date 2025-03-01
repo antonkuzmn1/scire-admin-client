@@ -9,39 +9,14 @@ import {dateToString} from "../../utils/formatDate.ts";
 import Input from "../components/Input.tsx";
 import {apiOauth} from "../../utils/api.ts";
 import LoadingSpinner from "../components/LoadingSpinner.tsx";
-
-interface Company {
-    id: number;
-    username: string;
-    description: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
-
-interface Data {
-    id: number;
-    username: string;
-    password: string;
-    surname: string;
-    name: string;
-    middlename: string | null;
-    department: string | null;
-    phone: string | null;
-    cellular: string | null;
-    post: string | null;
-    companies: Company[];
-    companiesNames: string;
-    created_at: string | null;
-    updated_at: string | null;
-}
-
+import {Admin, Company} from "../../utils/messengerInterfaces.ts";
 
 interface State {
-    data: Data;
+    data: Admin;
 }
 
 type Action =
-    | { type: 'SET_DATA', payload: Data }
+    | { type: 'SET_DATA', payload: Admin }
 
 const initialState: State = {
     data: {
@@ -56,7 +31,7 @@ const initialState: State = {
         cellular: null,
         post: null,
         companies: [],
-        companiesNames: '',
+        companyNames: '',
         created_at: null,
         updated_at: null
     },
@@ -65,10 +40,7 @@ const initialState: State = {
 const reducer = (state: State, action: Action) => {
     switch (action.type) {
         case 'SET_DATA':
-            return {
-                ...state,
-                data: action.payload,
-            };
+            return {...state, data: action.payload};
         default:
             return state;
     }
@@ -79,13 +51,13 @@ const PageMe: React.FC = () => {
     const [state, localDispatch] = useReducer(reducer, initialState);
     const [initDone, setInitDone] = useState<boolean>(false);
 
-    const getData = useCallback(async () => {
+    const init = useCallback(async () => {
         setInitDone(false);
         try {
             const response = await apiOauth.get("/admins/profile");
             const data = {
                 ...response.data,
-                companiesNames: response.data.companies.map((company: Company) => company.username).join(', '),
+                companyNames: response.data.companies.map((company: Company) => company.username).join(', '),
             }
             localDispatch({type: "SET_DATA", payload: data});
         } catch (error: unknown) {
@@ -100,8 +72,8 @@ const PageMe: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        getData().then();
-    }, [getData]);
+        init().then();
+    }, [dispatch, init]);
 
     const logout = () => {
         Cookies.remove('token');
@@ -113,8 +85,8 @@ const PageMe: React.FC = () => {
 
     return (
         <>
-            <div className="p-4 flex justify-center pb-20">
-                <div className={'max-w-xl w-full gap-2 flex flex-col'}>
+            <div className="flex justify-center">
+                <div className={'py-4 max-w-xl w-full gap-2 flex flex-col max-h-[calc(100dvh-57px)] overflow-y-scroll hide-scrollbar'}>
                     <Input
                         label={'ID'}
                         type={'number'}
@@ -182,7 +154,7 @@ const PageMe: React.FC = () => {
                         label={'Companies'}
                         type={'text'}
                         placeholder={'Empty'}
-                        value={state.data.companiesNames || ''}
+                        value={state.data.companyNames || ''}
                         readOnly={true}
                     />
                     <Input
@@ -199,7 +171,7 @@ const PageMe: React.FC = () => {
                         value={state.data.updated_at ? dateToString(new Date(state.data.updated_at)) : ''}
                         readOnly={true}
                     />
-                    <div className="flex w-full h-12 gap-2">
+                    <div className="flex w-full min-h-12 gap-2">
                         <button
                             className="border border-gray-300 flex items-center justify-center w-full hover:bg-gray-300 transition-colors duration-200 text-gray-600"
                             onClick={logout}

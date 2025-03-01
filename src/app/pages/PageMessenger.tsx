@@ -1,13 +1,14 @@
-import React, {useCallback, useEffect, useReducer, useRef, useState} from "react";
+import React, {useCallback, useEffect, useReducer, useState} from "react";
 import {AppDispatch} from "../../utils/store.ts";
 import {useDispatch} from "react-redux";
 import {setAppError} from "../../slices/appSlice.ts";
-import {apiOauth, apiScire, wsScire} from "../../utils/api.ts";
-import Cookies from "js-cookie";
+import {apiOauth, apiScire} from "../../utils/api.ts";
 import {useNavigate} from "react-router-dom";
-import {Admin, Ticket, User} from "../../utils/messengerInterfaces.ts";
+import {Admin, Company, Ticket, User} from "../../utils/messengerInterfaces.ts";
 import {adminIdToName, statusToText, userIdToName} from "../../utils/messengerTools.ts";
 import LoadingSpinner from "../components/LoadingSpinner.tsx";
+import {useWebSocket} from "../WebSocketContext.tsx";
+import {dateToString} from "../../utils/formatDate.ts";
 
 interface State {
     tickets: Ticket[];
@@ -33,15 +34,9 @@ const initialState: State = {
 const reducer = (state: State, action: Action): State => {
     switch (action.type) {
         case 'SET_TICKETS':
-            return {
-                ...state,
-                tickets: action.payload,
-            }
+            return {...state, tickets: action.payload}
         case 'ADD_TICKET':
-            return {
-                ...state,
-                tickets: [action.payload, ...state.tickets],
-            }
+            return {...state, tickets: [action.payload, ...state.tickets]}
         case 'UPDATE_TICKET':
             return {
                 ...state,
@@ -50,20 +45,11 @@ const reducer = (state: State, action: Action): State => {
                 ),
             }
         case 'DELETE_TICKET':
-            return {
-                ...state,
-                tickets: state.tickets.filter(ticket => ticket.id !== action.payload.id),
-            }
+            return {...state, tickets: state.tickets.filter(ticket => ticket.id !== action.payload.id)}
         case 'SET_USERS':
-            return {
-                ...state,
-                users: action.payload,
-            }
+            return {...state, users: action.payload}
         case 'SET_ADMINS':
-            return {
-                ...state,
-                admins: action.payload,
-            }
+            return {...state, admins: action.payload}
         default:
             return state;
     }
@@ -72,18 +58,24 @@ const reducer = (state: State, action: Action): State => {
 const PageMessenger: React.FC = () => {
     const dispatch: AppDispatch = useDispatch();
     const [state, localDispatch] = useReducer(reducer, initialState);
-    const wsRef = useRef<WebSocket | null>(null);
     const navigate = useNavigate();
     const [initDone, setInitDone] = useState<boolean>(false);
+    const {socket} = useWebSocket();
 
-    const getTickets = useCallback(async () => {
+    const init = useCallback(async () => {
         setInitDone(false);
         try {
             const usersResponse = await apiOauth.get("/users/");
             localDispatch({type: "SET_USERS", payload: usersResponse.data});
 
             const adminsResponse = await apiOauth.get("/admins/");
-            localDispatch({type: "SET_ADMINS", payload: adminsResponse.data});
+            const adminData = adminsResponse.data.map((admin: Admin) => {
+                return {
+                    ...admin,
+                    companyNames: admin.companies.map((company: Company) => company.username).join(', '),
+                }
+            });
+            localDispatch({type: "SET_ADMINS", payload: adminData});
 
             const response = await apiScire.get("/tickets/");
             const data = response.data.map((ticket: Ticket) => {
@@ -110,36 +102,20 @@ const PageMessenger: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        getTickets().then();
-    }, [dispatch]);
+        init().then();
+    }, [dispatch, init]);
+
+    const getUserById = (userId: number | undefined) => {
+        return state.users.find(user => user.id === userId);
+    }
+
+    const getAdminById = (adminId: number | undefined) => {
+        return state.admins.find(admin => admin.id === adminId);
+    }
 
     useEffect(() => {
-        const token = Cookies.get('token');
-        wsRef.current = new WebSocket(wsScire, ["token", token || '']);
-
-        wsRef.current.onopen = () => {
-        };
-
-        wsRef.current.onerror = (error: any) => {
-            console.log('WebSocket error');
-            dispatch(setAppError(error || 'WebSocket error'));
-        };
-
-        wsRef.current.onclose = () => {
-            console.log('WebSocket closed');
-        };
-
-        return () => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.close();
-                console.log('WebSocket closed');
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        if (wsRef.current) {
-            wsRef.current.onmessage = (event: any) => {
+        if (socket) {
+            socket.onmessage = (event: any) => {
                 const message = JSON.parse(event.data);
                 console.log(message);
                 switch (message.action) {
@@ -175,7 +151,13 @@ const PageMessenger: React.FC = () => {
                         break;
                     case "send_message":
                         break;
-                    case "assign_ticket":
+                    case "connect_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "UPDATE_TICKET", payload: message.data});
+                        break;
+                    case "disconnect_ticket":
                         message.data.statusText = statusToText(message.data.status);
                         message.data.userName = userIdToName(message.data.user_id, state.users);
                         message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
@@ -199,18 +181,80 @@ const PageMessenger: React.FC = () => {
 
     return (
         <>
-            <div className="p-4 flex justify-center pb-20">
-                <div className={'max-w-xl w-full gap-2 flex flex-col'}>
-                    {state.tickets.map((ticket: Ticket, index) => (
-                        <div key={index} className={'border border-gray-300 p-4 h-fit'}>
-                            <h1>{ticket.title} ({ticket.statusText})</h1>
-                            <p>{ticket.description}</p>
-                            <button
-                                className={'border border-gray-300 px-4 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                                onClick={() => navigate(`/${ticket.id}`)}
-                            >
-                                Open
-                            </button>
+            <div className="flex overflow-x-scroll">
+                <div className={'py-4 pr-2 pl-4 min-w-sm w-full gap-2 flex flex-col max-h-[calc(100dvh-57px)] hide-scrollbar overflow-y-scroll'}>
+                    {state.tickets.filter((ticket: Ticket) => ticket.status === 0).map((ticket: Ticket, index) => (
+                        <div
+                            key={index}
+                            className={'border border-gray-300 p-4 h-fit cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={() => navigate(`/${ticket.id}`)}
+                        >
+                            <h1 className={'font-bold text-xl'}>#{ticket.id} - {ticket.title}</h1>
+                            <p className={'whitespace-pre-line'}>{ticket.description}</p>
+                            <br/>
+                            <p className={'w-fit bg-red-200'}>Status: {ticket.statusText}</p>
+                            <br/>
+                            <p>User:</p>
+                            <p>Fullname: {ticket.userName || 'None'}</p>
+                            <p>Company: {getUserById(ticket.user_id)?.company.username || 'None'}</p>
+                            <p>Department: {getUserById(ticket.user_id)?.department || 'None'}</p>
+                            <p>Post: {getUserById(ticket.user_id)?.post || 'None'}</p>
+                            <p>Local workplace: {getUserById(ticket.user_id)?.local_workplace || 'None'}</p>
+                            <p>Remote workplace: {getUserById(ticket.user_id)?.remote_workplace || 'None'}</p>
+                            <p>Phone: {getUserById(ticket.user_id)?.phone || 'None'}</p>
+                            <p>Cellular: {getUserById(ticket.user_id)?.cellular || 'None'}</p>
+                            <br/>
+                            <p className={'w-fit bg-yellow-200'}>Admin:</p>
+                            {ticket.admin_id ? (<>
+                                <p>Fullname: {ticket.adminName || 'None'}</p>
+                                <p>Companies: {getAdminById(ticket.admin_id)?.companyNames || 'None'}</p>
+                                <p>Department: {getAdminById(ticket.admin_id)?.department || 'None'}</p>
+                                <p>Post: {getAdminById(ticket.admin_id)?.post || 'None'}</p>
+                                <p>Phone: {getAdminById(ticket.admin_id)?.phone || 'None'}</p>
+                                <p>Cellular: {getAdminById(ticket.admin_id)?.cellular || 'None'}</p>
+                            </>) : <p>None</p>}
+                            <br/>
+                            <p className={'text-right'}>
+                                {dateToString(new Date(String(ticket.created_at)))}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+                <div className={'py-4 pl-2 pr-4 min-w-sm w-full gap-2 flex flex-col max-h-[calc(100dvh-57px)] hide-scrollbar overflow-y-scroll'}>
+                    {state.tickets.filter((ticket: Ticket) => ticket.status === 1).map((ticket: Ticket, index) => (
+                        <div
+                            key={index}
+                            className={'border border-gray-300 p-4 h-fit cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={() => navigate(`/${ticket.id}`)}
+                        >
+                            <h1 className={'font-bold text-xl'}>#{ticket.id} - {ticket.title}</h1>
+                            <p className={'whitespace-pre-line'}>{ticket.description}</p>
+                            <br/>
+                            <p className={'w-fit bg-yellow-200'}>Status: {ticket.statusText}</p>
+                            <br/>
+                            <p>User:</p>
+                            <p>Fullname: {ticket.userName || 'None'}</p>
+                            <p>Company: {getUserById(ticket.user_id)?.company.username || 'None'}</p>
+                            <p>Department: {getUserById(ticket.user_id)?.department || 'None'}</p>
+                            <p>Post: {getUserById(ticket.user_id)?.post || 'None'}</p>
+                            <p>Local workplace: {getUserById(ticket.user_id)?.local_workplace || 'None'}</p>
+                            <p>Remote workplace: {getUserById(ticket.user_id)?.remote_workplace || 'None'}</p>
+                            <p>Phone: {getUserById(ticket.user_id)?.phone || 'None'}</p>
+                            <p>Cellular: {getUserById(ticket.user_id)?.cellular || 'None'}</p>
+                            <br/>
+                            <p className={'w-fit bg-yellow-200'}>Admin:</p>
+                            {ticket.admin_id ? (<>
+                                <p>Fullname: {ticket.adminName || 'None'}</p>
+                                <p>Companies: {getAdminById(ticket.admin_id)?.companyNames || 'None'}</p>
+                                <p>Department: {getAdminById(ticket.admin_id)?.department || 'None'}</p>
+                                <p>Post: {getAdminById(ticket.admin_id)?.post || 'None'}</p>
+                                <p>Phone: {getAdminById(ticket.admin_id)?.phone || 'None'}</p>
+                                <p>Cellular: {getAdminById(ticket.admin_id)?.cellular || 'None'}</p>
+                            </>) : <p>None</p>}
+                            <br/>
+                            <p className={'text-right'}>
+                                {dateToString(new Date(String(ticket.created_at)))}
+                            </p>
                         </div>
                     ))}
                 </div>

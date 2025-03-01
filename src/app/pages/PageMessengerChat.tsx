@@ -2,15 +2,15 @@ import React, {ChangeEvent, useCallback, useEffect, useReducer, useRef, useState
 import {AppDispatch} from "../../utils/store.ts";
 import {useDispatch} from "react-redux";
 import {setAppError} from "../../slices/appSlice.ts";
-import {apiOauth, apiScire, apiStorage, wsScire} from "../../utils/api.ts";
-import Cookies from "js-cookie";
+import {apiOauth, apiScire, apiStorage} from "../../utils/api.ts";
 import {useNavigate, useParams} from "react-router-dom";
 import {dateToString} from "../../utils/formatDate.ts";
 import {Download, Send} from "@mui/icons-material";
 import {formatFileSize} from "../../utils/formatFileSize.ts";
-import {Admin, Ticket, User, Message, TicketFile, MessageFile} from "../../utils/messengerInterfaces.ts";
+import {Admin, Ticket, User, Message, TicketFile, MessageFile, Company} from "../../utils/messengerInterfaces.ts";
 import {adminIdToName, statusToText, userIdToName} from "../../utils/messengerTools.ts";
 import LoadingSpinner from "../components/LoadingSpinner.tsx";
+import {useWebSocket} from "../WebSocketContext.tsx";
 
 interface State {
     ticket: Ticket;
@@ -21,6 +21,7 @@ interface State {
     messageFiles: MessageFile[];
     files: File[];
     message: string;
+    account: Admin | null;
 }
 
 type Action =
@@ -33,7 +34,8 @@ type Action =
     | { type: 'SET_MESSAGE_FILES', payload: MessageFile[] }
     | { type: 'ADD_FILE', payload: File | null }
     | { type: 'DELETE_FILE', payload: number }
-    | { type: 'SET_MESSAGE', payload: string };
+    | { type: 'SET_MESSAGE', payload: string }
+    | { type: 'SET_ACCOUNT', payload: Admin };
 
 const defaultTicket: Ticket = {
     id: 0,
@@ -58,6 +60,7 @@ const initialState: State = {
     messageFiles: [],
     files: [],
     message: "",
+    account: null,
 }
 
 const reducer = (state: State, action: Action): State => {
@@ -82,6 +85,8 @@ const reducer = (state: State, action: Action): State => {
             return {...state, files: state.files.filter((_, i) => i !== action.payload)}
         case 'SET_MESSAGE':
             return {...state, message: action.payload}
+        case 'SET_ACCOUNT':
+            return {...state, account: action.payload}
         default:
             return state;
     }
@@ -90,7 +95,7 @@ const reducer = (state: State, action: Action): State => {
 const PageMessengerChat: React.FC = () => {
     const dispatch: AppDispatch = useDispatch();
     const [state, localDispatch] = useReducer(reducer, initialState);
-    const wsRef = useRef<WebSocket | null>(null);
+    const {socket} = useWebSocket();
     const navigate = useNavigate();
     const {ticketId} = useParams();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -100,10 +105,23 @@ const PageMessengerChat: React.FC = () => {
         setInitDone(false);
         try {
             const adminsResponse = await apiOauth.get("/admins/");
-            localDispatch({type: "SET_ADMINS", payload: adminsResponse.data});
+            const adminData = adminsResponse.data.map((admin: Admin) => {
+                return {
+                    ...admin,
+                    companyNames: admin.companies.map((company: Company) => company.username).join(', '),
+                }
+            });
+            localDispatch({type: "SET_ADMINS", payload: adminData});
 
             const usersResponse = await apiOauth.get("/users/");
             localDispatch({type: "SET_USERS", payload: usersResponse.data});
+
+            const accountResponse = await apiOauth.get("/admins/profile");
+            const accountData = {
+                ...accountResponse.data,
+                companyNames: accountResponse.data.companies.map((company: Company) => company.username).join(', '),
+            }
+            localDispatch({type: "SET_ACCOUNT", payload: accountData});
 
             const ticketResponse = await apiScire.get(`/tickets/${ticketId}`);
             const data = ticketResponse.data;
@@ -120,8 +138,8 @@ const PageMessengerChat: React.FC = () => {
             const messages: Message[] = messagesResponse.data.map((message: Message) => {
                 return {
                     ...message,
-                    userName: userIdToName(data.user_id, usersResponse.data),
-                    adminName: adminIdToName(data.admin_id, adminsResponse.data),
+                    userName: userIdToName(message.user_id, usersResponse.data),
+                    adminName: adminIdToName(message.admin_id, adminData),
                 }
             });
             localDispatch({type: "SET_MESSAGES", payload: messages});
@@ -140,20 +158,60 @@ const PageMessengerChat: React.FC = () => {
         init().then();
     }, [dispatch]);
 
-    const assignTicket = () => {
+    const getUserById = (userId: number | undefined) => {
+        return state.users.find(user => user.id === userId);
+    }
+
+    const getAdminById = (adminId: number | undefined) => {
+        return state.admins.find(admin => admin.id === adminId);
+    }
+
+    const handleKeyDown = (event: any) => {
+        if (event.key === "Enter") {
+            if (event.shiftKey) {
+                event.preventDefault();
+                localDispatch({type: 'SET_MESSAGE', payload: state.message + '\n'});
+            } else {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+    };
+
+    const connectTicket = () => {
         setInitDone(false);
 
         const payload = {
-            action: 'assign_ticket',
+            action: 'connect_ticket',
             data: {
                 item_id: ticketId,
             }
         }
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(payload));
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
         } else {
             dispatch(setAppError("WebSocket error"));
         }
+
+        setInitDone(true);
+    }
+
+    const disconnectTicket = () => {
+        setInitDone(false);
+
+        const payload = {
+            action: 'disconnect_ticket',
+            data: {
+                item_id: ticketId,
+            }
+        }
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
+        } else {
+            dispatch(setAppError("WebSocket error"));
+        }
+
+        setTicketStatus(0);
 
         setInitDone(true);
     }
@@ -168,8 +226,8 @@ const PageMessengerChat: React.FC = () => {
                 status: status,
             }
         }
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(payload));
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
         } else {
             dispatch(setAppError("WebSocket error"));
         }
@@ -182,9 +240,19 @@ const PageMessengerChat: React.FC = () => {
         const text = state.message.trim();
         if (!text) {
             dispatch(setAppError('Message text required'));
+            return;
         }
 
         setInitDone(false);
+
+        if (state.ticket.admin_id && state.ticket.admin_id !== state.account?.id) {
+            dispatch(setAppError('Access denied'));
+            return;
+        }
+
+        if (!state.ticket.admin_id) {
+            connectTicket();
+        }
 
         const payload = {
             action: 'send_message',
@@ -194,8 +262,8 @@ const PageMessengerChat: React.FC = () => {
                 ticket_id: ticketId,
             }
         }
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(payload));
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
         } else {
             dispatch(setAppError("WebSocket error"));
         }
@@ -233,55 +301,43 @@ const PageMessengerChat: React.FC = () => {
     }
 
     useEffect(() => {
-        const token = Cookies.get('token');
-        wsRef.current = new WebSocket(wsScire, ["token", token || '']);
-
-        wsRef.current.onopen = () => {
-        };
-
-        wsRef.current.onerror = (error: any) => {
-            console.log('WebSocket error');
-            dispatch(setAppError(error || 'WebSocket error'));
-        };
-
-        wsRef.current.onclose = () => {
-            console.log('WebSocket closed');
-            // dispatch(setAppMessage("WebSocket closed"));
-        };
-
-        return () => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.close();
-                console.log('WebSocket closed');
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        if (wsRef.current) {
-            wsRef.current.onmessage = (event: any) => {
+        if (socket) {
+            socket.onmessage = (event: any) => {
                 const message = JSON.parse(event.data);
                 console.log(message);
                 switch (message.action) {
+                    case "create_ticket":
+                        break;
+                    case "add_file_to_ticket":
+                        break;
                     case "send_message":
-                        const sendMessageData: Message = message.data;
-                        sendMessageData.userName = userIdToName(sendMessageData.user_id, state.users);
-                        sendMessageData.adminName = adminIdToName(sendMessageData.admin_id, state.admins);
-                        localDispatch({type: "ADD_MESSAGE", payload: sendMessageData});
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "ADD_MESSAGE", payload: message.data});
                         break;
                     case "close_ticket":
-                        const closeTicketData: Ticket = message.data;
-                        closeTicketData.statusText = statusToText(closeTicketData.status);
-                        closeTicketData.userName = userIdToName(closeTicketData.user_id, state.users);
-                        closeTicketData.adminName = adminIdToName(closeTicketData.admin_id, state.admins);
-                        localDispatch({type: "SET_TICKET", payload: closeTicketData});
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "SET_TICKET", payload: message.data});
                         break;
-                    case "assign_ticket":
-                        const assignTicket: Ticket = message.data;
-                        assignTicket.statusText = statusToText(assignTicket.status);
-                        assignTicket.userName = userIdToName(assignTicket.user_id, state.users);
-                        assignTicket.adminName = adminIdToName(assignTicket.admin_id, state.admins);
-                        localDispatch({type: "SET_TICKET", payload: assignTicket});
+                    case "reopen_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "SET_TICKET", payload: message.data});
+                        break;
+                    case "connect_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "SET_TICKET", payload: message.data});
+                        break;
+                    case "disconnect_ticket":
+                        message.data.statusText = statusToText(message.data.status);
+                        message.data.userName = userIdToName(message.data.user_id, state.users);
+                        message.data.adminName = adminIdToName(message.data.admin_id, state.admins);
+                        localDispatch({type: "SET_TICKET", payload: message.data});
                         break;
                     case "set_ticket_status":
                         message.data.statusText = statusToText(message.data.status);
@@ -315,50 +371,97 @@ const PageMessengerChat: React.FC = () => {
                 className={'fixed w-full h-[calc(100%-137px)] overflow-y-auto flex flex-col gap-2 p-4'}
             >
                 <div className={'border border-gray-300 p-4'}>
-                    <h1>Title: {state.ticket?.title || 'Loading...'}</h1>
-                    <p>Description: {state.ticket?.description || 'Loading...'}</p>
-                    <p>Status: {state.ticket?.statusText || 'Loading...'}</p>
-                    <button
-                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                        onClick={() => setTicketStatus(0)}
+                    <h1 className={'font-bold text-xl'}>#{state.ticket?.id} - {state.ticket?.title}</h1>
+                    <p className={'whitespace-pre-line'}>{state.ticket?.description}</p>
+                    <br/>
+                    <p
+                        className={`w-fit + ${state.ticket?.status === 2
+                            ? 'bg-green-200'
+                            : state.ticket?.status === 1
+                                ? 'bg-yellow-200'
+                                : 'bg-red-200'}
+                                `}
                     >
-                        Pending
-                    </button>
-                    <button
-                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                        onClick={() => setTicketStatus(1)}
-                    >
-                        In progress
-                    </button>
-                    <button
-                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                        onClick={() => setTicketStatus(2)}
-                    >
-                        Solved
-                    </button>
-                    <p>Initiator: {state.ticket?.userName || 'Loading...'}</p>
-                    <p>Assigned: {state.ticket?.adminName || 'None'}</p>
-                    <button
-                        className={'border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                        onClick={assignTicket}
-                    >
-                        Assign ticket
-                    </button>
-                    <p>Date: {state.ticket ? dateToString(new Date(String(state.ticket.created_at))) : 'Loading...'}</p>
-                    <div className={'border border-gray-300 p-2 space-y-2'}>
-                        {state.ticketFiles.map((ticketFile, index) => (
-                            <div key={index}
-                                 className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
-                                {ticketFile.file_name} - {formatFileSize(ticketFile.file_size)}
-                                <button
-                                    className={'w-12 h-full cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
-                                    onClick={() => downloadTicketFile(ticketFile)}
-                                >
-                                    <Download/>
-                                </button>
-                            </div>
-                        ))}
-                    </div>
+                        Status: {state.ticket?.statusText}
+                    </p>
+                    {state.ticket?.status !== 0 && state.account?.id === state.ticket?.admin_id && (
+                        <button
+                            className={'bg-red-200 border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={() => setTicketStatus(0)}
+                        >
+                            Pending
+                        </button>
+                    )}
+                    {state.ticket?.status !== 1 && state.account?.id === state.ticket?.admin_id && (
+                        <button
+                            className={'bg-yellow-200 border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={() => setTicketStatus(1)}
+                        >
+                            In progress
+                        </button>
+                    )}
+                    {state.ticket?.status !== 2 && state.account?.id === state.ticket?.admin_id && (
+                        <button
+                            className={'bg-green-200 border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={() => setTicketStatus(2)}
+                        >
+                            Solved
+                        </button>
+                    )}
+                    <br/>
+                    <br/>
+                    <p>User:</p>
+                    <p>Fullname: {state.ticket?.userName || 'None'}</p>
+                    <p>Company: {getUserById(state.ticket.user_id)?.company.username || 'None'}</p>
+                    <p>Department: {getUserById(state.ticket?.user_id)?.department || 'None'}</p>
+                    <p>Post: {getUserById(state.ticket?.user_id)?.post || 'None'}</p>
+                    <p>Local workplace: {getUserById(state.ticket?.user_id)?.local_workplace || 'None'}</p>
+                    <p>Remote workplace: {getUserById(state.ticket?.user_id)?.remote_workplace || 'None'}</p>
+                    <p>Phone: {getUserById(state.ticket?.user_id)?.phone || 'None'}</p>
+                    <p>Cellular: {getUserById(state.ticket?.user_id)?.cellular || 'None'}</p>
+                    <br/>
+                    <p className={'w-fit bg-yellow-200'}>Admin:</p>
+                    {state.ticket?.admin_id ? (<>
+                        <p>Fullname: {state.ticket?.adminName || 'None'}</p>
+                        <p>Companies: {getAdminById(state.ticket?.admin_id)?.companyNames || 'None'}</p>
+                        <p>Department: {getAdminById(state.ticket?.admin_id)?.department || 'None'}</p>
+                        <p>Post: {getAdminById(state.ticket?.admin_id)?.post || 'None'}</p>
+                        <p>Phone: {getAdminById(state.ticket?.admin_id)?.phone || 'None'}</p>
+                        <p>Cellular: {getAdminById(state.ticket?.admin_id)?.cellular || 'None'}</p>
+                    </>) : <p>None</p>}
+                    {state.ticket?.admin_id !== state.account?.id && (
+                        <button
+                            className={'bg-yellow-200 border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={connectTicket}
+                        >
+                            Connect
+                        </button>
+                    )}
+                    {state.ticket?.admin_id === state.account?.id && (
+                        <button
+                            className={'bg-red-200 border border-gray-300 p-2 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                            onClick={disconnectTicket}
+                        >
+                            Disconnect
+                        </button>
+                    )}
+                    <p className={'text-right'}>{dateToString(new Date(String(state.ticket.created_at)))}</p>
+                    {state.ticketFiles.length > 0 && (
+                        <div className={'border border-gray-300 p-2 space-y-2'}>
+                            {state.ticketFiles.map((ticketFile, index) => (
+                                <div key={index}
+                                     className={'border border-gray-300 flex justify-between items-center pl-2 h-12'}>
+                                    {ticketFile.file_name} - {formatFileSize(ticketFile.file_size)}
+                                    <button
+                                        className={'w-12 h-full cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
+                                        onClick={() => downloadTicketFile(ticketFile)}
+                                    >
+                                        <Download/>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
                 {state.messages.map((message, index) => {
                     if (message.admin_id &&
@@ -369,8 +472,31 @@ const PageMessengerChat: React.FC = () => {
                         !message.solved
                     ) {
                         return (
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div className={'whitespace-pre-line'}>
+                                    [Admin] {message.adminName} marked ticket as Pending
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
+                            </div>
+                        )
+                    }
+                    if (!message.admin_id &&
+                        message.text === '' &&
+                        !message.admin_connected &&
+                        !message.admin_disconnected &&
+                        !message.in_progress &&
+                        !message.solved
+                    ) {
+                        return (
                             <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.adminName} marked ticket as Pending</div>
+                                <div className={'whitespace-pre-line'}>
+                                    {message.userName} marked ticket as Pending
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
@@ -382,8 +508,13 @@ const PageMessengerChat: React.FC = () => {
                         !message.solved
                     ) {
                         return (
-                            <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.adminName} marked ticket as In progress</div>
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div className={'whitespace-pre-line'}>
+                                    [Admin] {message.adminName} marked ticket as In progress
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
@@ -395,35 +526,78 @@ const PageMessengerChat: React.FC = () => {
                         message.solved
                     ) {
                         return (
-                            <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.adminName} marked ticket as Solved</div>
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div className={'whitespace-pre-line'}>
+                                    [Admin] {message.adminName} marked ticket as Solved
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
                     if (message.admin_connected) {
                         return (
-                            <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.adminName} connected</div>
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div className={'whitespace-pre-line'}>
+                                    [Admin] {message.adminName} connected
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
+                            </div>
+                        )
+                    }
+                    if (message.admin_disconnected) {
+                        return (
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div className={'whitespace-pre-line'}>
+                                    [Admin] {message.adminName} disconnected
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
                     if (message.solved && !message.admin_id) {
                         return (
                             <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.userName} marked ticket as Solved</div>
+                                <div className={'whitespace-pre-line'}>
+                                    {message.userName} marked ticket as Solved
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
                     if (message.admin_id) {
                         return (
-                            <div key={index} className={'border border-gray-300 p-4'}>
-                                <div>[Admin] {message.adminName}: {message.text}</div>
+                            <div key={index} className={'border border-gray-300 p-4 bg-yellow-200'}>
+                                <div>
+                                    [Admin] {message.adminName}:
+                                </div>
+                                <div className={'whitespace-pre-line'}>
+                                    {message.text}
+                                </div>
+                                <div className={'w-full text-right'}>
+                                    {dateToString(new Date(String(message.created_at)))}
+                                </div>
                             </div>
                         )
                     }
                     return (
                         <div key={index} className={'border border-gray-300 p-4'}>
-                            <div>{message.userName}: {message.text}</div>
+                            <div>
+                                {message.userName}:
+                            </div>
+                            <div className={'whitespace-pre-line'}>
+                                {message.text}
+                            </div>
+                            <div className={'w-full text-right'}>
+                                {dateToString(new Date(String(message.created_at)))}
+                            </div>
                         </div>
                     )
                 })}
@@ -443,6 +617,7 @@ const PageMessengerChat: React.FC = () => {
                         type: 'SET_MESSAGE',
                         payload: e.target.value,
                     })}
+                    onKeyDown={handleKeyDown}
                 />
                 <button
                     className={'p-4 cursor-pointer hover:bg-gray-300 transition-colors duration-200'}
