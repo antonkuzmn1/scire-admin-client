@@ -175,13 +175,13 @@ const PageMessenger: React.FC = () => {
                 }
             };
         }
-    }, []);
+    }, [state.users, state.admins]);
 
     if (!initDone) return <LoadingSpinner/>;
 
     return (
         <>
-            <div className="flex overflow-x-scroll">
+            <div className="flex overflow-x-scroll hide-scrollbar">
                 <div className={'py-4 pr-2 pl-4 min-w-sm w-full gap-2 flex flex-col max-h-[calc(100dvh-57px)] hide-scrollbar overflow-y-scroll'}>
                     {state.tickets.filter((ticket: Ticket) => ticket.status === 0).map((ticket: Ticket, index) => (
                         <div
